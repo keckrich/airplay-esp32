@@ -259,9 +259,9 @@ void wifi_init_apsta(const char *ap_ssid, const char *ap_password) {
   }
 
   wifi_config_t sta_config = {0};
-  strncpy((char *)sta_config.sta.ssid, ssid, sizeof(sta_config.sta.ssid) - 1);
-  strncpy((char *)sta_config.sta.password, password,
-          sizeof(sta_config.sta.password) - 1);
+  strlcpy((char *)sta_config.sta.ssid, ssid, sizeof(sta_config.sta.ssid));
+  strlcpy((char *)sta_config.sta.password, password,
+          sizeof(sta_config.sta.password));
   sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
   // Configure AP and save for later re-enable

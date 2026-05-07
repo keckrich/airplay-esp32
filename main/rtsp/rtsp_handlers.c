@@ -887,7 +887,7 @@ static void parse_sdp(rtsp_conn_t *conn, const char *sdp, size_t len) {
 #endif
 
   // Update connection state
-  strncpy(conn->codec, format.codec, sizeof(conn->codec) - 1);
+  strlcpy(conn->codec, format.codec, sizeof(conn->codec));
   conn->sample_rate = format.sample_rate;
   conn->channels = format.channels;
   conn->bits_per_sample = format.bits_per_sample;
@@ -1450,19 +1450,19 @@ static void handle_set_parameter(int socket, rtsp_conn_t *conn,
       if (bplist_find_string(body, body_len, "itemName", str_val,
                              sizeof(str_val))) {
         ESP_LOGI(TAG, "Metadata: Title = %s", str_val);
-        strncpy(event_data.metadata.title, str_val, METADATA_STRING_MAX - 1);
+        strlcpy(event_data.metadata.title, str_val, METADATA_STRING_MAX);
         has_metadata = true;
       }
       if (bplist_find_string(body, body_len, "artistName", str_val,
                              sizeof(str_val))) {
         ESP_LOGI(TAG, "Metadata: Artist = %s", str_val);
-        strncpy(event_data.metadata.artist, str_val, METADATA_STRING_MAX - 1);
+        strlcpy(event_data.metadata.artist, str_val, METADATA_STRING_MAX);
         has_metadata = true;
       }
       if (bplist_find_string(body, body_len, "albumName", str_val,
                              sizeof(str_val))) {
         ESP_LOGI(TAG, "Metadata: Album = %s", str_val);
-        strncpy(event_data.metadata.album, str_val, METADATA_STRING_MAX - 1);
+        strlcpy(event_data.metadata.album, str_val, METADATA_STRING_MAX);
         has_metadata = true;
       }
       // Progress info from bplist

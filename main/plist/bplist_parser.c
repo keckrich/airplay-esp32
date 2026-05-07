@@ -1178,7 +1178,7 @@ bool bplist_get_stream_kv_info(const uint8_t *plist, size_t plist_len,
 
         bplist_kv_info_t *info = &out[*out_count];
         memset(info, 0, sizeof(*info));
-        strncpy(info->key, stream_key, sizeof(info->key) - 1);
+        strlcpy(info->key, stream_key, sizeof(info->key));
 
         uint8_t stream_val_marker = plist[stream_val_offset];
         uint8_t stream_val_type = stream_val_marker & 0xF0;
