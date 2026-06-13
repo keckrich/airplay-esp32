@@ -135,12 +135,11 @@ cd airplay-esp32
 # 3. Plug in your ESP32 via USB-C and flash
 pio run -e esp32s3 -t upload
 
-# 4. Flash File System
-pio run -e esp32s3  -t uploadfs
-
-# 5. (Optional) Watch serial output for debugging
+# 4. (Optional) Watch serial output for debugging
 pio run -e esp32s3 -t monitor
 ```
+> **Note:** On first setup the [SPIFFS Filesystem](../README.md#spiffs-filesystem) needs to be flashed via `pio run -e esp32s3 -t monitor` [[details](../README.md#flashing-the-spiffs-image)].
+
 
 ### Option C — ESP-IDF
 
