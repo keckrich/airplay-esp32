@@ -344,10 +344,12 @@ static esp_err_t led_brightness_post_handler(httpd_req_t *req) {
   cJSON *val = cJSON_GetObjectItem(json, "brightness");
   if (val && cJSON_IsNumber(val)) {
     int b = (int)val->valuedouble;
-    if (b < 0)
+    if (b < 0) {
       b = 0;
-    if (b > 255)
+    }
+    if (b > 255) {
       b = 255;
+    }
     esp_err_t err = led_set_brightness((uint8_t)b);
     if (err == ESP_OK) {
       cJSON_AddBoolToObject(response, "success", true);

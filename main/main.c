@@ -218,6 +218,10 @@ void app_main(void) {
   display_init(iot_board_get_handle(BOARD_I2C_DISP_ID));
 #endif
 
+  // Initialize LVGL-dependent board resources (e.g., touch input) after
+  // display/LVGL port is ready.
+  iot_board_init_lvgl_resources();
+
   // Try ethernet first
   bool eth_available = false;
   err = ethernet_init();

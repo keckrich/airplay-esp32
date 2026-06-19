@@ -315,13 +315,15 @@ esp_err_t settings_set_device_name(const char *name) {
 /* ================================================================== */
 
 esp_err_t settings_get_led_brightness(uint8_t *brightness) {
-  if (!brightness)
+  if (!brightness) {
     return ESP_ERR_INVALID_ARG;
+  }
 
   nvs_handle_t nvs;
   esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs);
-  if (err != ESP_OK)
+  if (err != ESP_OK) {
     return ESP_ERR_NOT_FOUND;
+  }
 
   err = nvs_get_u8(nvs, NVS_KEY_LED_BRIGHTNESS, brightness);
   nvs_close(nvs);
@@ -337,8 +339,9 @@ esp_err_t settings_set_led_brightness(uint8_t brightness) {
   }
 
   err = nvs_set_u8(nvs, NVS_KEY_LED_BRIGHTNESS, brightness);
-  if (err == ESP_OK)
+  if (err == ESP_OK) {
     err = nvs_commit(nvs);
+  }
   nvs_close(nvs);
 
   if (err == ESP_OK) {
