@@ -132,12 +132,17 @@ pip install platformio
 git clone --recursive https://github.com/rbouteiller/airplay-esp32
 cd airplay-esp32
 
-# 3. Plug in your ESP32 via USB-C and flash
+# 3. Plug in your ESP32 via USB-C and flash the firmware
 pio run -e esp32s3 -t upload
 
-# 4. (Optional) Watch serial output for debugging
+# 4. Flash the SPIFFS image with the web UI and data files
+pio run -e esp32s3 -t uploadfs
+
+# 5. (Optional) Watch serial output for debugging
 pio run -e esp32s3 -t monitor
 ```
+> **Note:** PlatformIO does not flash the [SPIFFS Filesystem](#spiffs-filesystem) as part of `-t upload`; run `pio run -e esp32s3 -t uploadfs` after flashing firmware so the web UI and data files are present [[details](#flashing-the-spiffs-image)].
+
 
 ### Option C — ESP-IDF
 

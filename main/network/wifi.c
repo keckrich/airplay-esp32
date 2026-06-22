@@ -23,6 +23,8 @@ static EventGroupHandle_t s_wifi_event_group;
 
 // Re-enable AP after this many consecutive failures
 #define AP_REENABLE_THRESHOLD 5
+// lwIP DHCP hostnames are limited to 31 characters plus the trailing NUL.
+#define DHCP_HOSTNAME_MAX_LEN 31
 
 static int s_retry_num = 0;
 static esp_netif_t *s_sta_netif = NULL;
@@ -42,13 +44,16 @@ static void sanitize_hostname(const char *name, char *out, size_t out_len) {
   size_t j = 0;
   for (size_t i = 0; name[i] && j < out_len - 1; i++) {
     char c = name[i];
-    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9')) {
       out[j++] = c;
     } else if (j > 0 && out[j - 1] != '-') {
       out[j++] = '-';
     }
   }
-  while (j > 0 && out[j - 1] == '-') j--;
+  while (j > 0 && out[j - 1] == '-') {
+    j--;
+  }
   if (j == 0) {
     strlcpy(out, "esp32-airplay", out_len);
     return;
@@ -57,8 +62,10 @@ static void sanitize_hostname(const char *name, char *out, size_t out_len) {
 }
 
 void wifi_set_hostname(const char *device_name) {
-  if (!s_sta_netif || !device_name) return;
-  char hostname[33];
+  if (!s_sta_netif || !device_name) {
+    return;
+  }
+  char hostname[DHCP_HOSTNAME_MAX_LEN + 1];
   sanitize_hostname(device_name, hostname, sizeof(hostname));
   esp_err_t err = esp_netif_set_hostname(s_sta_netif, hostname);
   if (err != ESP_OK) {

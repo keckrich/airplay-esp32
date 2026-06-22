@@ -304,8 +304,7 @@ static void error_led_init(void) {
 }
 
 static void error_led_set(bool on) {
-  ledc_set_duty(LEDC_LOW_SPEED_MODE, ERROR_LED_CHANNEL,
-                on ? CONFIG_LED_STATUS_BRIGHTNESS : 0);
+  ledc_set_duty(LEDC_LOW_SPEED_MODE, ERROR_LED_CHANNEL, on ? s_brightness : 0);
   ledc_update_duty(LEDC_LOW_SPEED_MODE, ERROR_LED_CHANNEL);
 }
 
@@ -459,12 +458,7 @@ static uint8_t scale_bright(uint8_t v) {
   return (uint8_t)((uint16_t)v * s_brightness / 255);
 }
 
-static void apply_state(led_state_t state) {
-  s_prev_state = s_current_state;
-  s_current_state = state;
-
-  ESP_LOGI(TAG, "LED state change: %d -> %d", s_prev_state, state);
-
+static void render_state(led_state_t state) {
   switch (state) {
   case STATE_PLAYING:
     status_led_set_mode(get_status_mode_playing());
@@ -479,8 +473,7 @@ static void apply_state(led_state_t state) {
 #ifdef CONFIG_LED_RGB_COLOR_PAUSED
       uint32_t c = CONFIG_LED_RGB_COLOR_PAUSED;
       rgb_led_set_color(scale_bright((c >> 16) & 0xFF),
-                        scale_bright((c >> 8) & 0xFF),
-                        scale_bright(c & 0xFF));
+                        scale_bright((c >> 8) & 0xFF), scale_bright(c & 0xFF));
 #else
       rgb_led_set_color(0, 0, scale_bright(0x33));
 #endif
@@ -495,8 +488,7 @@ static void apply_state(led_state_t state) {
 #ifdef CONFIG_LED_RGB_COLOR_STANDBY
       uint32_t c = CONFIG_LED_RGB_COLOR_STANDBY;
       rgb_led_set_color(scale_bright((c >> 16) & 0xFF),
-                        scale_bright((c >> 8) & 0xFF),
-                        scale_bright(c & 0xFF));
+                        scale_bright((c >> 8) & 0xFF), scale_bright(c & 0xFF));
 #else
       rgb_led_set_color(0, scale_bright(0x11), 0);
 #endif
@@ -512,10 +504,18 @@ static void apply_state(led_state_t state) {
     // No error LED - use status LED to indicate error
     status_led_set_mode(LED_BLINK_FAST);
 #endif
-    rgb_led_set_color(0x80, 0, 0);
+    rgb_led_set_color(scale_bright(0x80), 0, 0);
     error_led_set(true);
     break;
   }
+}
+
+static void apply_state(led_state_t state) {
+  s_prev_state = s_current_state;
+  s_current_state = state;
+
+  ESP_LOGI(TAG, "LED state change: %d -> %d", s_prev_state, state);
+  render_state(state);
 }
 
 static void on_rtsp_event(rtsp_event_t event, const rtsp_event_data_t *data,
@@ -632,13 +632,22 @@ void led_init(void) {
 
 void led_set_error(bool error) {
   if (error) {
-    apply_state(STATE_ERROR);
-  } else {
+    if (s_current_state != STATE_ERROR) {
+      apply_state(STATE_ERROR);
+    } else {
+      render_state(STATE_ERROR);
+    }
+  } else if (s_current_state == STATE_ERROR) {
     apply_state(s_prev_state);
   }
 }
 
-void led_set_brightness(uint8_t brightness) {
+esp_err_t led_set_brightness(uint8_t brightness) {
+  esp_err_t err = settings_set_led_brightness(brightness);
+  if (err != ESP_OK) {
+    return err;
+  }
+
   s_brightness = brightness;
 #if CONFIG_LED_STATUS_GPIO >= 0
   s_status_duty = brightness;
@@ -647,9 +656,9 @@ void led_set_brightness(uint8_t brightness) {
     status_led_set_duty(s_status_duty);
   }
 #endif
-  // Re-apply current RGB state so the new brightness takes effect immediately
-  apply_state(s_current_state);
-  settings_set_led_brightness(brightness);
+  // Re-render without changing previous/current state history.
+  render_state(s_current_state);
+  return ESP_OK;
 }
 
 uint8_t led_get_brightness(void) {
