@@ -4,6 +4,7 @@
 #include "audio_resample.h"
 #include "dac.h"
 #include "led.h"
+#include "settings.h"
 #include "driver/i2s_std.h"
 #include "driver/gpio.h"
 #include "esp_check.h"
@@ -12,6 +13,12 @@
 #include "audio_receiver.h"
 #include <inttypes.h>
 #include <stdlib.h>
+#ifdef CONFIG_DAC_TAS58XX
+#include "dac_tas58xx.h"
+#endif
+#ifdef CONFIG_DAC_TAS57XX
+#include "dac_tas57xx.h"
+#endif
 
 // SIDE NOTE; providing power from GPIO pins is capped ~20mA.
 #if CONFIG_I2S_GND_IO >= 0
@@ -54,6 +61,28 @@ static volatile int source_rate = 44100;
 static volatile bool resample_reinit_needed = false;
 static volatile audio_channel_mode_t channel_mode = AUDIO_CHANNEL_STEREO;
 
+/* A bi-amp hybrid flow drives one output per crossover way, so there is no
+ * left and right to pick from downstream — the DSP's input mixer makes the
+ * selection instead, and the software downmix has to stand aside. */
+bool audio_output_channel_mode_in_dsp(void) {
+#ifdef CONFIG_DAC_TAS57XX
+  return dac_tas57xx_has_input_mix();
+#else
+  return false;
+#endif
+}
+
+static void push_channel_mode_to_dsp(audio_channel_mode_t mode) {
+#ifdef CONFIG_DAC_TAS57XX
+  dac_tas57xx_set_input_source(mode == AUDIO_CHANNEL_LEFT ? TAS57XX_INPUT_LEFT
+                               : mode == AUDIO_CHANNEL_RIGHT
+                                   ? TAS57XX_INPUT_RIGHT
+                                   : TAS57XX_INPUT_MIX);
+#else
+  (void)mode;
+#endif
+}
+
 static void apply_volume(int16_t *buf, size_t n) {
 #ifndef CONFIG_DAC_CONTROLS_VOLUME
   // Ramp toward the target gain instead of applying volume changes
@@ -85,10 +114,22 @@ static void apply_volume(int16_t *buf, size_t n) {
 
 // Apply the selected channel mode to an interleaved stereo buffer (L,R,...).
 // LEFT/RIGHT route the chosen source channel to BOTH outputs so the selected
-// track is heard from both speakers; STEREO leaves the buffer untouched.
+// track is heard from both speakers; MONO plays the (L+R)/2 downmix on both
+// outputs; STEREO leaves the buffer untouched.
 static void apply_channel_mode(int16_t *buf, size_t frames) {
+  if (audio_output_channel_mode_in_dsp()) {
+    return;
+  }
   audio_channel_mode_t mode = channel_mode;
   if (mode == AUDIO_CHANNEL_STEREO) {
+    return;
+  }
+  if (mode == AUDIO_CHANNEL_MONO) {
+    for (size_t i = 0; i < frames; i++) {
+      int16_t m = (int16_t)(((int32_t)buf[i * 2] + buf[i * 2 + 1]) / 2);
+      buf[i * 2] = m;
+      buf[i * 2 + 1] = m;
+    }
     return;
   }
   size_t src = (mode == AUDIO_CHANNEL_RIGHT) ? 1 : 0;
@@ -158,6 +199,22 @@ static void playback_task(void *arg) {
 }
 
 esp_err_t audio_output_init(void) {
+  uint8_t saved_mode;
+  if (settings_get_channel_mode(&saved_mode) == ESP_OK &&
+      saved_mode <= AUDIO_CHANNEL_MONO) {
+    channel_mode = (audio_channel_mode_t)saved_mode;
+    ESP_LOGI(TAG, "Loaded channel mode: %d", saved_mode);
+  }
+
+  if (channel_mode != AUDIO_CHANNEL_STEREO &&
+      audio_output_channel_mode_locked()) {
+    ESP_LOGI(TAG, "Dual DAC output: ignoring saved channel mode");
+    // Not persisted: the preference is only meaningless while two amps are
+    // fitted, so keep it for if the board is ever reconfigured.
+    channel_mode = AUDIO_CHANNEL_STEREO;
+  }
+  push_channel_mode_to_dsp(channel_mode);
+
   i2s_chan_config_t chan_cfg =
       I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   chan_cfg.dma_desc_num = I2S_DMA_DESC_NUM;
@@ -254,6 +311,7 @@ void audio_output_set_sample_rate(uint32_t rate) {
   i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(rate);
   i2s_channel_reconfig_std_clock(tx_handle, &clk_cfg);
   i2s_channel_enable(tx_handle);
+  dac_on_i2s_started();
 }
 
 void audio_output_flush(void) {
@@ -288,7 +346,26 @@ uint32_t audio_output_get_hardware_latency_us(void) {
                     OUTPUT_RATE);
 }
 
+/* With two amplifiers the DAC configuration already fixes the routing, so a
+ * channel selection on top of that would only mute a speaker. */
+bool audio_output_channel_mode_locked(void) {
+#ifdef CONFIG_DAC_TAS58XX
+  if (dac_tas58xx_get_device_count() > 1) {
+    return true;
+  }
+#endif
+#ifdef CONFIG_DAC_TAS57XX
+  if (dac_tas57xx_get_device_count() > 1) {
+    return true;
+  }
+#endif
+  return false;
+}
+
 audio_channel_mode_t audio_output_cycle_channel_mode(void) {
+  if (audio_output_channel_mode_locked()) {
+    return channel_mode;
+  }
   audio_channel_mode_t next;
   switch (channel_mode) {
   case AUDIO_CHANNEL_STEREO:
@@ -297,16 +374,32 @@ audio_channel_mode_t audio_output_cycle_channel_mode(void) {
   case AUDIO_CHANNEL_LEFT:
     next = AUDIO_CHANNEL_RIGHT;
     break;
+  case AUDIO_CHANNEL_RIGHT:
+    next = AUDIO_CHANNEL_MONO;
+    break;
   default:
     next = AUDIO_CHANNEL_STEREO;
     break;
   }
-  channel_mode = next;
-  ESP_LOGI(TAG, "Channel mode: %s",
-           next == AUDIO_CHANNEL_LEFT    ? "LEFT only"
-           : next == AUDIO_CHANNEL_RIGHT ? "RIGHT only"
-                                         : "STEREO");
+  audio_output_set_channel_mode(next);
   return next;
+}
+
+void audio_output_set_channel_mode(audio_channel_mode_t mode) {
+  if (audio_output_channel_mode_locked()) {
+    return;
+  }
+  if (mode > AUDIO_CHANNEL_MONO) {
+    mode = AUDIO_CHANNEL_STEREO;
+  }
+  channel_mode = mode;
+  settings_set_channel_mode((uint8_t)mode);
+  push_channel_mode_to_dsp(mode);
+  ESP_LOGI(TAG, "Channel mode: %s",
+           mode == AUDIO_CHANNEL_LEFT    ? "LEFT only"
+           : mode == AUDIO_CHANNEL_RIGHT ? "RIGHT only"
+           : mode == AUDIO_CHANNEL_MONO  ? "MONO (L+R)"
+                                         : "STEREO");
 }
 
 audio_channel_mode_t audio_output_get_channel_mode(void) {
