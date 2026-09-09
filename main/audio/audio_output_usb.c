@@ -194,8 +194,8 @@ esp_err_t audio_output_init(void) {
 }
 
 void audio_output_start(void) {
-  xTaskCreatePinnedToCore(playback_task, "usb_play", 4096, NULL, 7, NULL,
-                          PLAYBACK_CORE);
+  xTaskCreatePinnedToCore(playback_task, "usb_play", 4096, NULL,
+                          AUDIO_PLAYBACK_TASK_PRIORITY, NULL, PLAYBACK_CORE);
 }
 
 void audio_output_flush(void) {
@@ -213,3 +213,7 @@ uint32_t audio_output_get_hardware_latency_us(void) {
   // USB isochronous audio: ~2ms double-buffered endpoint latency.
   return 2000;
 }
+
+/* The UAC driver exposes neither a transfer-completion cursor nor an underrun
+ * count, and there is no channel routing to control, so the weak defaults in
+ * audio_output_common.c cover the rest of the API. */
